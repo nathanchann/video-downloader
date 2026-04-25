@@ -49,7 +49,7 @@ cp links.example.txt links.txt
 ./download.sh links.txt
 ```
 
-Files land in `./downloads/<platform>/<uploader>_<id>.<ext>`.
+Files land in `./downloads/<uploader>_<id>.mp4` (flat, all `.mp4`).
 
 Optional second arg sets the output dir: `./download.sh links.txt /tmp/out`.
 
