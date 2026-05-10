@@ -23,20 +23,25 @@ fi
 
 mkdir -p "$OUT"
 
+TIKTOK_LOCK="$(mktemp -u)"
+
 download_tiktok() {
     local url="$1"
-    # vt.tiktok.com short links fail DNS resolution inside curl_cffi; resolve with system curl first
     if [[ "$url" == *"vt.tiktok.com"* ]]; then
         local resolved
         resolved=$(curl -Ls -o /dev/null -w "%{url_effective}" "$url" 2>/dev/null)
         [[ -n "$resolved" && "$resolved" != "$url" ]] && url="$resolved"
     fi
-    "$YTDLP" "$url" \
-        --impersonate "safari" \
-        --concurrent-fragments 1 \
-        -o "$OUT/$OUT_TEMPLATE" \
-        --merge-output-format mp4 \
-        --no-warnings
+    # Serialize TikTok runs: curl_cffi has memory bugs under parallel load on Python 3.14
+    (
+        flock 9
+        "$YTDLP" "$url" \
+            --impersonate "safari" \
+            --concurrent-fragments 1 \
+            -o "$OUT/$OUT_TEMPLATE" \
+            --merge-output-format mp4 \
+            --no-warnings
+    ) 9>"$TIKTOK_LOCK"
 }
 
 download_youtube() {
@@ -71,15 +76,16 @@ dispatch() {
 }
 
 FAILED_FILE="$(mktemp)"
-trap 'rm -f "$FAILED_FILE"' EXIT
+trap 'rm -f "$FAILED_FILE" "$TIKTOK_LOCK"' EXIT
 TOTAL=0
+MAX_ATTEMPTS=5
 
 run_with_retry() {
     local url="$1"
     local attempt
     echo ""
     echo "→ $url"
-    for attempt in 1 2; do
+    for ((attempt=1; attempt<=MAX_ATTEMPTS; attempt++)); do
         if dispatch "$url"; then
             return 0
         fi
