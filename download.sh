@@ -56,7 +56,7 @@ dispatch() {
     echo ""
     echo "→ $url"
     case "$url" in
-        *tiktok.com*)             download_tiktok "$url" ;;
+        *tiktok.com*|*vt.tiktok.com*) download_tiktok "$url" ;;
         *youtube.com*|*youtu.be*) download_youtube "$url" ;;
         *instagram.com*)          download_instagram "$url" ;;
         *) echo "  unknown platform — trying yt-dlp generic"
@@ -64,9 +64,10 @@ dispatch() {
     esac
 }
 
-while IFS= read -r url || [ -n "$url" ]; do
-    [[ -z "$url" || "$url" =~ ^[[:space:]]*# ]] && continue
-    url="${url%%[[:space:]]*}"
+while IFS= read -r line || [ -n "$line" ]; do
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+    url=$(grep -oE 'https?://[^[:space:]]+' <<< "$line" | head -1)
+    [[ -z "$url" ]] && continue
 
     dispatch "$url" &
 
