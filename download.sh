@@ -33,6 +33,7 @@ download_tiktok() {
     fi
     "$YTDLP" "$url" \
         --impersonate "safari" \
+        --concurrent-fragments 1 \
         -o "$OUT/$OUT_TEMPLATE" \
         --merge-output-format mp4 \
         --no-warnings
