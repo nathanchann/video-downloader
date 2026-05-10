@@ -26,6 +26,7 @@ mkdir -p "$OUT"
 download_tiktok() {
     "$YTDLP" "$1" \
         --impersonate "safari" \
+        --downloader ffmpeg \
         -o "$OUT/$OUT_TEMPLATE" \
         --merge-output-format mp4 \
         --no-warnings
@@ -53,10 +54,8 @@ download_instagram() {
 
 dispatch() {
     local url="$1"
-    echo ""
-    echo "→ $url"
     case "$url" in
-        *tiktok.com*)             download_tiktok "$url" ;;
+        *tiktok.com*|*vt.tiktok.com*) download_tiktok "$url" ;;
         *youtube.com*|*youtu.be*) download_youtube "$url" ;;
         *instagram.com*)          download_instagram "$url" ;;
         *) echo "  unknown platform — trying yt-dlp generic"
@@ -64,11 +63,34 @@ dispatch() {
     esac
 }
 
-while IFS= read -r url || [ -n "$url" ]; do
-    [[ -z "$url" || "$url" =~ ^[[:space:]]*# ]] && continue
-    url="${url%%[[:space:]]*}"
+FAILED_FILE="$(mktemp)"
+trap 'rm -f "$FAILED_FILE"' EXIT
+TOTAL=0
 
-    dispatch "$url" &
+run_with_retry() {
+    local url="$1"
+    local attempt
+    echo ""
+    echo "→ $url"
+    for attempt in 1 2; do
+        if dispatch "$url"; then
+            return 0
+        fi
+        echo "  attempt $attempt failed for $url"
+        sleep 2
+    done
+    echo "  giving up on $url"
+    echo "$url" >> "$FAILED_FILE"
+    return 1
+}
+
+while IFS= read -r line || [ -n "$line" ]; do
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+    url=$(grep -oE 'https?://[^[:space:]]+' <<< "$line" | head -1)
+    [[ -z "$url" ]] && continue
+    TOTAL=$((TOTAL + 1))
+
+    run_with_retry "$url" &
 
     while (( $(jobs -rp | wc -l) >= MAX_JOBS )); do
         sleep 0.3
@@ -77,5 +99,23 @@ done < "$LINKS"
 
 wait
 
+FAIL_COUNT=0
+[ -s "$FAILED_FILE" ] && FAIL_COUNT=$(wc -l < "$FAILED_FILE" | tr -d ' ')
+SUCCESS_COUNT=$((TOTAL - FAIL_COUNT))
+
 echo ""
 echo "Done. Files in: $OUT/"
+echo ""
+echo "$SUCCESS_COUNT/$TOTAL downloaded successfully, $FAIL_COUNT failed"
+
+if [ "$FAIL_COUNT" -gt 0 ]; then
+    RETRY_OUT="$OUT/failed.txt"
+    cp "$FAILED_FILE" "$RETRY_OUT"
+    echo ""
+    echo "Failed link(s):"
+    sed 's/^/  - /' "$RETRY_OUT"
+    echo ""
+    echo "Saved failed URLs to: $RETRY_OUT"
+    echo "Re-run with: $0 $RETRY_OUT $OUT $MAX_JOBS"
+    exit 1
+fi
