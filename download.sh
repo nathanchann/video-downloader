@@ -23,7 +23,16 @@ fi
 
 mkdir -p "$OUT"
 
-TIKTOK_LOCK="$(mktemp -u)"
+TIKTOK_LOCK="${TMPDIR:-/tmp}/video-dl-tiktok.lock.$$"
+
+tiktok_lock_acquire() {
+    while ! mkdir "$TIKTOK_LOCK" 2>/dev/null; do
+        sleep 0.3
+    done
+}
+tiktok_lock_release() {
+    rmdir "$TIKTOK_LOCK" 2>/dev/null
+}
 
 download_tiktok() {
     local url="$1"
@@ -33,15 +42,16 @@ download_tiktok() {
         [[ -n "$resolved" && "$resolved" != "$url" ]] && url="$resolved"
     fi
     # Serialize TikTok runs: curl_cffi has memory bugs under parallel load on Python 3.14
-    (
-        flock 9
-        "$YTDLP" "$url" \
-            --impersonate "safari" \
-            --concurrent-fragments 1 \
-            -o "$OUT/$OUT_TEMPLATE" \
-            --merge-output-format mp4 \
-            --no-warnings
-    ) 9>"$TIKTOK_LOCK"
+    tiktok_lock_acquire
+    local rc=0
+    "$YTDLP" "$url" \
+        --impersonate "safari" \
+        --concurrent-fragments 1 \
+        -o "$OUT/$OUT_TEMPLATE" \
+        --merge-output-format mp4 \
+        --no-warnings || rc=$?
+    tiktok_lock_release
+    return $rc
 }
 
 download_youtube() {
@@ -76,7 +86,7 @@ dispatch() {
 }
 
 FAILED_FILE="$(mktemp)"
-trap 'rm -f "$FAILED_FILE" "$TIKTOK_LOCK"' EXIT
+trap 'rm -f "$FAILED_FILE"; rmdir "$TIKTOK_LOCK" 2>/dev/null' EXIT
 TOTAL=0
 MAX_ATTEMPTS=5
 
