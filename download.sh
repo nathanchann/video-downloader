@@ -24,9 +24,15 @@ fi
 mkdir -p "$OUT"
 
 download_tiktok() {
-    "$YTDLP" "$1" \
+    local url="$1"
+    # vt.tiktok.com short links fail DNS resolution inside curl_cffi; resolve with system curl first
+    if [[ "$url" == *"vt.tiktok.com"* ]]; then
+        local resolved
+        resolved=$(curl -Ls -o /dev/null -w "%{url_effective}" "$url" 2>/dev/null)
+        [[ -n "$resolved" && "$resolved" != "$url" ]] && url="$resolved"
+    fi
+    "$YTDLP" "$url" \
         --impersonate "safari" \
-        --downloader ffmpeg \
         -o "$OUT/$OUT_TEMPLATE" \
         --merge-output-format mp4 \
         --no-warnings
